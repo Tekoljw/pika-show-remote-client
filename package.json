@@ -1,0 +1,26 @@
+{
+  "name": "pika-show-remote-client",
+  "private": true,
+  "version": "1.0.0",
+  "description": "PIKA-Show 远程客户端——装在直播间那台 PC 上：主动连出去到 PIKA-Show 服务端（不需要开放任何入站端口）、扫描本机 MIDI/串口设备、本地拉起无头 QLC+ 当灯光执行引擎。跟原来 Python 版 agent-client 协议完全兼容（同一个 agent-server.js）。",
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build:win": "pkg . --public-packages \"*\" --public --targets node22-win-x64 --output dist/pika-show-remote.exe"
+  },
+  "dependencies": {
+    "easymidi": "^3.1.0",
+    "serialport": "^12.0.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.22.0"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/@julusian/midi/prebuilds/midi-win32-x64/*.node",
+      "node_modules/@serialport/bindings-cpp/prebuilds/win32-x64/*.node"
+    ]
+  }
+}

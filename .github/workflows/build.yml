@@ -1,0 +1,57 @@
+name: Build PIKA-Show 远程客户端 (Windows)
+
+# 独立公开仓库，只放这个远程客户端——用途是拿 GitHub 公开仓库的免费无限 Actions
+# 分钟数（不受 PIKA-Show 主仓库所在账号的 billing/spending limit 影响），并且
+# 用真 Windows Runner 构建 + 冒烟测试（不是本地用 Wine 模拟那种退而求其次的验证）。
+# 这个仓库是 PIKA-Show 私有主仓库 remote-client/ 目录的构建镜像，不是独立开发的
+# 代码——改动应该先在主仓库改，再同步过来，不要直接在这里改代码。
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 冒烟测试——原生模块（serialport/easymidi）在真 Windows 上能不能正常加载
+        run: |
+          node -e "
+            const { scanDevices } = require('./lib/scan.js');
+            scanDevices().then((d) => {
+              console.log('SCAN_OK:', JSON.stringify(d));
+              process.exit(0);
+            }).catch((e) => {
+              console.error('SCAN_FAIL:', e.message);
+              process.exit(1);
+            });
+          "
+
+      - name: 打包成单文件 exe
+        run: npm run build:win
+
+      - name: 冒烟测试——打包后的 exe 能不能正常跑起来（不需要真连服务端/QLC+）
+        run: |
+          $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) {
+            Write-Error "exe 启动后自己退出了（应该常驻运行才对）"
+            exit 1
+          }
+          Write-Host "exe 已经跑起来了，进程仍然存活，符合预期（正常会一直连服务端重连）"
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pika-show-remote-windows
+          path: dist/pika-show-remote.exe
+          retention-days: 30
