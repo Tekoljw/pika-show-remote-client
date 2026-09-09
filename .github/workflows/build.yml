@@ -5,10 +5,17 @@ name: Build PIKA-Show 远程客户端 (Windows)
 # 用真 Windows Runner 构建 + 冒烟测试（不是本地用 Wine 模拟那种退而求其次的验证）。
 # 这个仓库是 PIKA-Show 私有主仓库 remote-client/ 目录的构建镜像，不是独立开发的
 # 代码——改动应该先在主仓库改，再同步过来，不要直接在这里改代码。
+#
+# 2026-09 加了自动发布：构建通过后，如果 package.json 的版本号对应的 tag 还
+# 没有 Release，就自动建一个并把 exe 挂上去——远程客户端 GUI 里的"检查更新"
+# 就是查这个仓库的 latest release，没有这一步"检查更新"永远查不到新版本。
 on:
   push:
     branches: [master]
   workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -18,7 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: 安装依赖
         run: npm ci
@@ -34,6 +41,13 @@ jobs:
               console.error('SCAN_FAIL:', e.message);
               process.exit(1);
             });
+          "
+
+      - name: 冒烟测试——@webviewjs/webview 原生模块能不能加载（不开真窗口，只测 require 不炸）
+        run: |
+          node -e "
+            const { Application } = require('@webviewjs/webview');
+            console.log('WEBVIEW_MODULE_OK:', typeof Application);
           "
 
       - name: 打包成单文件 exe
@@ -55,3 +69,20 @@ jobs:
           name: pika-show-remote-windows
           path: dist/pika-show-remote.exe
           retention-days: 30
+
+      - name: 自动发布——版本号对应的 tag 不存在才建 Release（版本没提就不重复发布）
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $exists = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
+          } else {
+            Write-Host "创建 Release $tag"
+            gh release create $tag "dist/pika-show-remote.exe" `
+              --title "PIKA-Show 远程客户端 $tag" `
+              --notes "自动构建发布，来自 commit ${{ github.sha }}"
+          }
