@@ -55,10 +55,14 @@ jobs:
 
       - name: 冒烟测试——打包后的 exe 能不能正常跑起来（不需要真连服务端/QLC+）
         run: |
-          $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru
+          $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru -RedirectStandardOutput "exe-stdout.log" -RedirectStandardError "exe-stderr.log"
           Start-Sleep -Seconds 5
           if ($p.HasExited) {
-            Write-Error "exe 启动后自己退出了（应该常驻运行才对）"
+            Write-Error "exe 启动后自己退出了（应该常驻运行才对），exit code: $($p.ExitCode)"
+            Write-Host "---- stdout ----"
+            Get-Content "exe-stdout.log" -ErrorAction SilentlyContinue
+            Write-Host "---- stderr ----"
+            Get-Content "exe-stderr.log" -ErrorAction SilentlyContinue
             exit 1
           }
           Write-Host "exe 已经跑起来了，进程仍然存活，符合预期（正常会一直连服务端重连）"
