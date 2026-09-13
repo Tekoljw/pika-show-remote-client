@@ -50,6 +50,19 @@ jobs:
             console.log('WEBVIEW_MODULE_OK:', typeof Application);
           "
 
+      - name: 冒烟测试——engine.js/showStorage.js（node:sqlite）在真 Windows 上能不能正常加载和读写
+        run: |
+          node -e "
+            const engine = require('./lib/engine.js');
+            console.log('ENGINE_REQUIRE_OK:', typeof engine);
+            const showStorage = require('./lib/showStorage.js');
+            const w = showStorage.writeShow({ id: 'ci-smoke', displayName: 'CI冒烟测试', events: [] });
+            console.log('SHOW_WRITE:', JSON.stringify(w));
+            const r = showStorage.listShows();
+            console.log('SHOW_LIST:', JSON.stringify(r));
+            if (!w.ok || !r.ok) process.exit(1);
+          "
+
       - name: 打包成单文件 exe
         run: npm run build:win
 
