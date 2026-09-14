@@ -82,7 +82,20 @@ jobs:
           $qlcVersion = "5.2.2"
           $qlcUrl = "https://www.qlcplus.org/downloads/$qlcVersion/QLC+_$qlcVersion.exe"
           Write-Host "下载 QLC+ $qlcVersion : $qlcUrl"
-          Invoke-WebRequest -Uri $qlcUrl -OutFile "qlcplus-installer.exe" -UserAgent "Mozilla/5.0"
+          # qlcplus.org 前面挂了 Cloudflare/ModSecurity，太简短的 User-Agent
+          # （比如单纯 "Mozilla/5.0"）会被当成疑似机器人直接拦截返回
+          # "Not Acceptable" 错误页——之前一次 CI 运行就是这样，返回的是几百
+          # 字节的错误页 HTML 而不是真的安装包。换成完整的浏览器 UA 字符串。
+          $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          Invoke-WebRequest -Uri $qlcUrl -OutFile "qlcplus-installer.exe" -UserAgent $ua
+          $fileSize = (Get-Item "qlcplus-installer.exe").Length
+          Write-Host "下载完成，文件大小: $fileSize 字节"
+          if ($fileSize -lt 10MB) {
+            Write-Error "下载的文件只有 $fileSize 字节，明显不是真的安装包（应该有 40-60MB），大概率是官网的 WAF 拦截返回了错误页面而不是真的文件"
+            Write-Host "---- 文件内容预览 ----"
+            Get-Content "qlcplus-installer.exe" -TotalCount 20 -ErrorAction SilentlyContinue
+            exit 1
+          }
           $installDir = "C:\qlcplus-installed"
           Write-Host "静默安装到 $installDir"
           $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList "/S", "/D=$installDir" -Wait -PassThru
