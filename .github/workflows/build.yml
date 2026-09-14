@@ -66,12 +66,16 @@ jobs:
       - name: 打包成单文件 exe
         run: npm run build:win
 
-      - name: 下载并解出 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
+      - name: 下载并静默安装 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
         # QLC+（mcallegari/qlcplus，Apache 2.0 协议，查证过允许这样重新分发）
         # 的 GitHub Release 不带任何二进制 asset，真正的 Windows 安装包托管在
-        # 官网自己的下载服务器。用 7-Zip 直接解开 NSIS 安装包（不运行安装程序，
-        # windows-latest runner 自带 7-Zip），不用猜安装包内部目录结构，解压后
-        # 递归找 qlcplus.exe 所在目录整个复制过来。
+        # 官网自己的下载服务器，是个 NSIS 安装包。第一版尝试用 7-Zip 直接解开
+        # （不运行安装程序）失败了——解压后找不到 qlcplus.exe，大概率是这个
+        # 安装包用了 7z 的 NSIS 插件处理不了的嵌套压缩格式。改用 NSIS 官方
+        # 支持的静默安装参数（/S /D=<目录>，这是 NSIS 提供的标准自动化机制，
+        # 不是我们猜的）实际装一遍，比逆向 7z 提取更可靠。/D= 是 NSIS 的已知
+        # 坑：必须是最后一个参数，且路径不能加引号，所以目标目录故意选了个
+        # 不含空格的路径。
         shell: pwsh
         run: |
           $ProgressPreference = 'SilentlyContinue'
@@ -79,15 +83,20 @@ jobs:
           $qlcUrl = "https://www.qlcplus.org/downloads/$qlcVersion/QLC+_$qlcVersion.exe"
           Write-Host "下载 QLC+ $qlcVersion : $qlcUrl"
           Invoke-WebRequest -Uri $qlcUrl -OutFile "qlcplus-installer.exe" -UserAgent "Mozilla/5.0"
-          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
-          & $sevenZip x "qlcplus-installer.exe" -o"qlcplus-extracted" -y | Out-Null
-          $exeFile = Get-ChildItem -Path "qlcplus-extracted" -Recurse -Filter "qlcplus.exe" | Select-Object -First 1
-          if (-not $exeFile) {
-            Write-Error "解压 QLC+ 安装包后没找到 qlcplus.exe，官方安装包内部结构可能变了，需要人工检查（不是代码 bug）"
+          $installDir = "C:\qlcplus-installed"
+          Write-Host "静默安装到 $installDir"
+          $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList "/S", "/D=$installDir" -Wait -PassThru
+          Write-Host "安装程序退出码: $($proc.ExitCode)"
+          Start-Sleep -Seconds 3
+          if (-not (Test-Path "$installDir\qlcplus.exe")) {
+            Write-Error "静默安装后没找到 $installDir\qlcplus.exe，需要人工检查安装参数或安装包本身（不一定是代码 bug）"
+            Write-Host "---- C:\qlcplus-installed 目录内容（如果存在）----"
+            Get-ChildItem -Path "C:\" -Filter "qlcplus*" -ErrorAction SilentlyContinue | Select-Object FullName
+            if (Test-Path $installDir) { Get-ChildItem -Path $installDir -Recurse -ErrorAction SilentlyContinue | Select-Object FullName }
             exit 1
           }
-          Write-Host "找到 QLC+ 可执行文件: $($exeFile.FullName)"
-          Copy-Item -Path $exeFile.Directory.FullName -Destination "dist\qlcplus" -Recurse -Force
+          Write-Host "找到 QLC+ 可执行文件: $installDir\qlcplus.exe"
+          Copy-Item -Path $installDir -Destination "dist\qlcplus" -Recurse -Force
           $fileCount = (Get-ChildItem "dist\qlcplus" -Recurse -File).Count
           Write-Host "QLC+ 已捆绑到 dist\qlcplus，共 $fileCount 个文件"
           $existingLicense = Get-ChildItem -Path "dist\qlcplus" -Include "LICENSE*","COPYING*" -Recurse -ErrorAction SilentlyContinue
