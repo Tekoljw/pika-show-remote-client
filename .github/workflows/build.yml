@@ -96,41 +96,22 @@ jobs:
             Get-Content "qlcplus-installer.exe" -TotalCount 20 -ErrorAction SilentlyContinue
             exit 1
           }
-          $installDir = "C:\qlcplus-installed"
-          Write-Host "静默安装到 $installDir"
-          # /D= 是 NSIS 出了名挑剔的参数——之前一次用 -ArgumentList "/S","/D=$installDir"
-          # 这种数组形式，装是装成功了（退出码 0），但没有装到 /D= 指定的目录，
-          # 大概率是 PowerShell 给数组元素自动加的引号干扰了 NSIS 对这个参数的解析
-          # （NSIS 要求 /D= 后面不能带引号）。改用单个拼好的字符串传给
-          # -ArgumentList，避免这层自动加引号。
-          $installArgs = "/S /D=$installDir"
-          $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList $installArgs -Wait -PassThru
+          # 直接查过 mcallegari/qlcplus 官方 .nsi 安装脚本源码
+          # (platforms/windows/qlcplus4Qt5.nsi)：脚本里硬编码 InstallDir C:\QLC+，
+          # 且没有任何 SilentInstall/.onInit 静默处理逻辑——之前几次尝试用
+          # /D=<自定义目录> 覆盖默认安装位置，装是装成功了(退出码0)，但目标
+          # 目录里找不到文件，大概率是这个装了自定义 Page 的安装脚本对 /D=
+          # 支持不完整。不跟它较劲，直接不传 /D=，让它装到脚本自己的默认
+          # 位置 C:\QLC+，这是有源码依据的，不是继续猜。
+          $installDir = "C:\QLC+"
+          $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList "/S" -Wait -PassThru
           Write-Host "安装程序退出码: $($proc.ExitCode)"
           Start-Sleep -Seconds 3
           if (-not (Test-Path "$installDir\qlcplus.exe")) {
-            Write-Host "指定目录没找到，在常见安装位置里找 qlcplus.exe 实际装到哪了..."
-            # 只搜 NSIS 默认可能落地的几个地方，不搜整个 C 盘——扫全盘在
-            # windows-latest runner 上曾经跑了 8 分钟都没跑完（系统文件太多），
-            # 这几个候选目录覆盖了 NSIS 默认安装目录的所有常见写法。
-            $candidates = @(
-              "C:\Program Files\QLC+", "C:\Program Files (x86)\QLC+",
-              "$env:ProgramFiles\QLC+", "${env:ProgramFiles(x86)}\QLC+",
-              "$env:LOCALAPPDATA\QLC+", "$env:LOCALAPPDATA\Programs\QLC+"
-            )
-            $found = $null
-            foreach ($dir in $candidates) {
-              if (Test-Path "$dir\qlcplus.exe") { $found = "$dir\qlcplus.exe"; break }
-            }
-            if (-not $found) {
-              $found = Get-ChildItem -Path "C:\Program Files","C:\Program Files (x86)" -Recurse -Filter "qlcplus.exe" -ErrorAction SilentlyContinue -Depth 3 | Select-Object -First 1 -ExpandProperty FullName
-            }
-            if ($found) {
-              Write-Host "在别处找到了: $found，改用这个目录"
-              $installDir = Split-Path $found -Parent
-            } else {
-              Write-Error "常见安装位置都没找到 qlcplus.exe，静默安装参数可能整个不对，需要人工检查安装包本身（不一定是代码 bug）"
-              exit 1
-            }
+            Write-Error "静默安装后 $installDir 里没有 qlcplus.exe（官方安装脚本硬编码的默认目录），需要人工检查安装包本身（不一定是代码 bug）"
+            Write-Host "---- C:\ 根目录内容 ----"
+            Get-ChildItem -Path "C:\" -ErrorAction SilentlyContinue | Select-Object Name
+            exit 1
           }
           Write-Host "找到 QLC+ 可执行文件: $installDir\qlcplus.exe"
           Copy-Item -Path $installDir -Destination "dist\qlcplus" -Recurse -Force
