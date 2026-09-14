@@ -33,7 +33,7 @@ npm install
 npm run build:win
 ```
 
-产物是 `dist/` 整个目录——`pika-show-remote.exe` 加一个 `qlcplus/` 子目录（打包时自动下载官方 QLC+ 装好，见上面"依赖"一节），不再是单文件，分发时要整个目录一起打包（zip）给用户，解压后双击 `pika-show-remote.exe` 即可,不用单独装 Node.js、也不用单独装 QLC+。界面里的"检查更新"只在这个打包后的 exe 里有效——源码直跑(`node index.js`)模式下点"检查更新"能查,但"立即更新"会报错拒绝执行,因为没有一个"自己"可以被替换。
+产物是 `dist/` 整个目录——`pika-show-remote.exe` 加一个 `qlcplus/` 子目录（打包时自动下载官方 QLC+ 装好，见上面"依赖"一节），不再是单文件。CI（`pika-show-remote-client` 镜像仓库的 `build.yml`）在此基础上还会用 Inno Setup（`installer.nsi` 已废弃，改用 `installer.iss`；`windows-latest` runner 实测自带，路径 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`）打包出一个单文件安装向导 `PIKA-Show-Setup-v<版本>.exe`，装的时候会顺手把"开机自动启动"也配好——GitHub Release 里三份资产都会挂：**新用户首次安装推荐用 `PIKA-Show-Setup-v<版本>.exe`**（双击、下一步、完成，自动配自启动）；`pika-show-remote-v<版本>.zip` 是免安装完整包，解压即用；`pika-show-remote.exe` 是裸 exe，给已经装过 QLC+ 的老用户或热更新用。界面里的"检查更新"只在打包后的 exe 里有效——源码直跑(`node index.js`)模式下点"检查更新"能查,但"立即更新"会报错拒绝执行,因为没有一个"自己"可以被替换。
 
 **如实说明这一层保护的边界**:这只是把代码+Node 运行时打包成一个二进制文件,不是加密。打包格式(`pkg`/`@yao-pkg/pkg`)本身是公开、有文档的,懂行的人用现成工具能把代码整个提取出来——这一步的作用是"用户拿到的是一个 exe,不是能直接打开看的源码文件夹",劝退非技术用户,挡不住真正想反编译的人。
 
