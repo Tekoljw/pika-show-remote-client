@@ -104,16 +104,31 @@ jobs:
           $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList "/S" -Wait -PassThru
           Write-Host "安装程序退出码: $($proc.ExitCode)"
           Start-Sleep -Seconds 3
-          $installDir = Get-ChildItem -Path "C:\" -Directory -Filter "QLC*" -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path (Join-Path $_.FullName "qlcplus.exe") } |
-            Select-Object -First 1 -ExpandProperty FullName
+          # C:\QLC+5 是 windows-latest 镜像本来就有的目录（不是这次安装产生的——
+          # 跟 Android/Julia/PostgreSQL 这些平级，属于镜像自带的预装软件列表），
+          # 之前两轮误以为是安装产物，排查方向错了。这次改成直接大范围搜：
+          # Program Files 系列 + 当前用户的 LOCALAPPDATA/APPDATA（不少现代
+          # NSIS 安装包在非管理员权限下会装到这些用户目录，跟旧版 .nsi 脚本里
+          # RequestExecutionLevel user 这行对得上），仍然不碰整个 C 盘。
+          $searchRoots = @("C:\Program Files", "C:\Program Files (x86)", $env:LOCALAPPDATA, $env:APPDATA) | Where-Object { $_ -and (Test-Path $_) }
+          $installDir = $null
+          foreach ($root in $searchRoots) {
+            $hit = Get-ChildItem -Path $root -Recurse -Filter "qlcplus.exe" -ErrorAction SilentlyContinue -Depth 4 | Select-Object -First 1
+            if ($hit) { $installDir = $hit.DirectoryName; break }
+          }
           if (-not $installDir) {
             # 用 Write-Host 不用 Write-Error——pwsh 在 GH Actions 里 $ErrorActionPreference
             # 默认是 Stop，Write-Error 会是终止性错误，直接跳过后面所有诊断输出，
             # 之前几次运行就是这样白白损失了排查信息。
-            Write-Host "ERROR: 静默安装后 C:\ 下找不到任何带 qlcplus.exe 的 QLC* 目录"
-            Write-Host "---- C:\ 根目录内容 ----"
-            Get-ChildItem -Path "C:\" -ErrorAction SilentlyContinue | Select-Object Name | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "ERROR: 在 Program Files/LOCALAPPDATA/APPDATA 里都没找到 qlcplus.exe"
+            Write-Host "---- C:\QLC+5 目录内容（镜像自带，确认一下到底是什么）----"
+            if (Test-Path "C:\QLC+5") { Get-ChildItem -Path "C:\QLC+5" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host }
+            Write-Host "---- C:\Program Files 内容 ----"
+            Get-ChildItem -Path "C:\Program Files" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
+            Write-Host "---- C:\Program Files (x86) 内容 ----"
+            Get-ChildItem -Path "C:\Program Files (x86)" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
+            Write-Host "---- $env:LOCALAPPDATA 内容 ----"
+            Get-ChildItem -Path $env:LOCALAPPDATA -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
             exit 1
           }
           Write-Host "找到 QLC+ 可执行文件: $installDir\qlcplus.exe"
