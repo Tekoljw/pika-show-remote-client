@@ -186,7 +186,28 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          & "C:\Program Files (x86)\NSIS\makensis.exe" "/DVERSION=$version" "installer.nsi"
+          # 实测确认 windows-latest 镜像的 NSIS 不在 C:\Program Files (x86)\NSIS
+          # （那是猜的老版本默认路径，这次实测不对，也不在 PATH 里）——现查几个
+          # 候选位置，都不中就报错列出真实候选目录内容，不再瞎猜第二次。
+          $candidates = @(
+            "C:\Program Files (x86)\NSIS\makensis.exe",
+            "C:\Program Files\NSIS\makensis.exe"
+          )
+          $makensis = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) {
+            $cmd = Get-Command makensis -ErrorAction SilentlyContinue
+            if ($cmd) { $makensis = $cmd.Source }
+          }
+          if (-not $makensis) {
+            Write-Host "ERROR: 候选路径和 PATH 里都没找到 makensis.exe"
+            foreach ($root in @("C:\Program Files (x86)", "C:\Program Files")) {
+              Write-Host "---- $root 内容 ----"
+              Get-ChildItem -Path $root -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
+            }
+            exit 1
+          }
+          Write-Host "使用 makensis: $makensis"
+          & $makensis "/DVERSION=$version" "installer.nsi"
           if ($LASTEXITCODE -ne 0) {
             Write-Error "makensis 打包安装向导失败，exit code $LASTEXITCODE"
             exit 1
