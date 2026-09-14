@@ -108,13 +108,27 @@ jobs:
           Write-Host "安装程序退出码: $($proc.ExitCode)"
           Start-Sleep -Seconds 3
           if (-not (Test-Path "$installDir\qlcplus.exe")) {
-            Write-Host "指定目录没找到，全盘搜索 qlcplus.exe 实际装到哪了..."
-            $found = Get-ChildItem -Path "C:\" -Recurse -Filter "qlcplus.exe" -ErrorAction SilentlyContinue -Depth 6 | Select-Object -First 1
+            Write-Host "指定目录没找到，在常见安装位置里找 qlcplus.exe 实际装到哪了..."
+            # 只搜 NSIS 默认可能落地的几个地方，不搜整个 C 盘——扫全盘在
+            # windows-latest runner 上曾经跑了 8 分钟都没跑完（系统文件太多），
+            # 这几个候选目录覆盖了 NSIS 默认安装目录的所有常见写法。
+            $candidates = @(
+              "C:\Program Files\QLC+", "C:\Program Files (x86)\QLC+",
+              "$env:ProgramFiles\QLC+", "${env:ProgramFiles(x86)}\QLC+",
+              "$env:LOCALAPPDATA\QLC+", "$env:LOCALAPPDATA\Programs\QLC+"
+            )
+            $found = $null
+            foreach ($dir in $candidates) {
+              if (Test-Path "$dir\qlcplus.exe") { $found = "$dir\qlcplus.exe"; break }
+            }
+            if (-not $found) {
+              $found = Get-ChildItem -Path "C:\Program Files","C:\Program Files (x86)" -Recurse -Filter "qlcplus.exe" -ErrorAction SilentlyContinue -Depth 3 | Select-Object -First 1 -ExpandProperty FullName
+            }
             if ($found) {
-              Write-Host "在别处找到了: $($found.FullName)，改用这个目录"
-              $installDir = $found.DirectoryName
+              Write-Host "在别处找到了: $found，改用这个目录"
+              $installDir = Split-Path $found -Parent
             } else {
-              Write-Error "全盘搜索也没找到 qlcplus.exe，静默安装参数可能整个不对，需要人工检查安装包本身（不一定是代码 bug）"
+              Write-Error "常见安装位置都没找到 qlcplus.exe，静默安装参数可能整个不对，需要人工检查安装包本身（不一定是代码 bug）"
               exit 1
             }
           }
