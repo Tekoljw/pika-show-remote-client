@@ -178,6 +178,21 @@ jobs:
           Stop-Process -Id $p.Id -Force
           Stop-Process -Id $qlcProc.Id -Force -ErrorAction SilentlyContinue
 
+      - name: 打包成单文件安装向导——用 NSIS（windows-latest runner 自带 3.10，跟 QLC+ 官方安装包是同一个工具）
+        # 双击一个安装包比"下载 zip、解压、找到 exe 双击"体验好，还能顺手把
+        # "开机自动启动"这步自动做掉（installer.nsi 里已经处理）。这一步放在
+        # 上面冒烟测试通过之后——安装包打包的是已经验证过能正常拉起 QLC+ 的
+        # 那份 dist\，不会把一个有问题的产物包进安装包里。
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "/DVERSION=$version" "installer.nsi"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "makensis 打包安装向导失败，exit code $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "已生成 PIKA-Show-Setup-v$version.exe"
+
       - name: 打包发布用的 zip——完整目录（exe + 捆绑的 QLC+），供用户首次下载解压使用
         # GitHub Release 单独还会挂一份裸 exe（见下面发布步骤），是因为
         # updater.js 的 checkForUpdate() 现在只认 .exe 结尾的 asset 做热更新，
@@ -208,7 +223,7 @@ jobs:
             Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
           } else {
             Write-Host "创建 Release $tag"
-            gh release create $tag "dist/pika-show-remote.exe" "pika-show-remote-v$version.zip" `
+            gh release create $tag "dist/pika-show-remote.exe" "pika-show-remote-v$version.zip" "PIKA-Show-Setup-v$version.exe" `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，来自 commit ${{ github.sha }}。`n`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用`n- pika-show-remote-v$version.zip：完整包（含捆绑的 QLC+），新用户首次安装用这个"
+              --notes "自动构建发布，来自 commit ${{ github.sha }}。`n`n- PIKA-Show-Setup-v$version.exe：安装向导，新用户首次安装推荐用这个（自动配开机启动）`n- pika-show-remote-v$version.zip：免安装完整包（含捆绑的 QLC+），解压即用`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用"
           }
