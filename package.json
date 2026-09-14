@@ -1,7 +1,7 @@
 {
   "name": "pika-show-remote-client",
   "private": true,
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "PIKA-Show 远程客户端——装在直播间那台 PC 上：主动连出去到 PIKA-Show 服务端（不需要开放任何入站端口）、扫描本机 MIDI/串口设备、本地拉起无头 QLC+ 当灯光执行引擎、带一个简单 GUI（连接开关/配对码/改名/检查更新）。跟原来 Python 版 agent-client 协议完全兼容（同一个 agent-server.js）。",
   "main": "index.js",
   "bin": "index.js",
