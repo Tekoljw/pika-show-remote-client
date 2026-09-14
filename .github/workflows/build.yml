@@ -178,38 +178,29 @@ jobs:
           Stop-Process -Id $p.Id -Force
           Stop-Process -Id $qlcProc.Id -Force -ErrorAction SilentlyContinue
 
-      - name: 打包成单文件安装向导——用 NSIS（windows-latest runner 自带 3.10，跟 QLC+ 官方安装包是同一个工具）
+      - name: 打包成单文件安装向导——用 Inno Setup（windows-latest runner 实测确认自带）
         # 双击一个安装包比"下载 zip、解压、找到 exe 双击"体验好，还能顺手把
-        # "开机自动启动"这步自动做掉（installer.nsi 里已经处理）。这一步放在
+        # "开机自动启动"这步自动做掉（installer.iss 里已经处理）。这一步放在
         # 上面冒烟测试通过之后——安装包打包的是已经验证过能正常拉起 QLC+ 的
         # 那份 dist\，不会把一个有问题的产物包进安装包里。
+        #
+        # 原计划用 NSIS（跟 QLC+ 官方安装包同款工具），CI 实测这个 runner 上
+        # NSIS 既不在任何 Program Files 目录也不在 PATH 里，跟官方 readme
+        # 软件清单对不上；同一次诊断输出里 Inno Setup 6 确认真实存在于
+        # C:\Program Files (x86)\Inno Setup 6，换用它，路径已现查证实。
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          # 实测确认 windows-latest 镜像的 NSIS 不在 C:\Program Files (x86)\NSIS
-          # （那是猜的老版本默认路径，这次实测不对，也不在 PATH 里）——现查几个
-          # 候选位置，都不中就报错列出真实候选目录内容，不再瞎猜第二次。
-          $candidates = @(
-            "C:\Program Files (x86)\NSIS\makensis.exe",
-            "C:\Program Files\NSIS\makensis.exe"
-          )
-          $makensis = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $makensis) {
-            $cmd = Get-Command makensis -ErrorAction SilentlyContinue
-            if ($cmd) { $makensis = $cmd.Source }
-          }
-          if (-not $makensis) {
-            Write-Host "ERROR: 候选路径和 PATH 里都没找到 makensis.exe"
-            foreach ($root in @("C:\Program Files (x86)", "C:\Program Files")) {
-              Write-Host "---- $root 内容 ----"
-              Get-ChildItem -Path $root -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
-            }
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "ERROR: ISCC.exe 不在预期路径 $iscc"
+            Write-Host "---- C:\Program Files (x86) 内容 ----"
+            Get-ChildItem -Path "C:\Program Files (x86)" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
             exit 1
           }
-          Write-Host "使用 makensis: $makensis"
-          & $makensis "/DVERSION=$version" "installer.nsi"
+          & $iscc "/DMyAppVersion=$version" "installer.iss"
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "makensis 打包安装向导失败，exit code $LASTEXITCODE"
+            Write-Error "ISCC 打包安装向导失败，exit code $LASTEXITCODE"
             exit 1
           }
           Write-Host "已生成 PIKA-Show-Setup-v$version.exe"
