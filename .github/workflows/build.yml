@@ -108,9 +108,14 @@ jobs:
           Write-Host "安装程序退出码: $($proc.ExitCode)"
           Start-Sleep -Seconds 3
           if (-not (Test-Path "$installDir\qlcplus.exe")) {
-            Write-Error "静默安装后 $installDir 里没有 qlcplus.exe（官方安装脚本硬编码的默认目录），需要人工检查安装包本身（不一定是代码 bug）"
+            # 用 Write-Host 不用 Write-Error——pwsh 在 GH Actions 里 $ErrorActionPreference
+            # 默认是 Stop，Write-Error 会是终止性错误，直接跳过后面所有诊断输出，
+            # 之前几次运行就是这样白白损失了排查信息。
+            Write-Host "ERROR: 静默安装后 $installDir 里没有 qlcplus.exe（官方安装脚本硬编码的默认目录）"
             Write-Host "---- C:\ 根目录内容 ----"
-            Get-ChildItem -Path "C:\" -ErrorAction SilentlyContinue | Select-Object Name
+            Get-ChildItem -Path "C:\" -ErrorAction SilentlyContinue | Select-Object Name | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "---- 是否存在 C:\QLC+（不区分大小写检查一下别名问题）----"
+            Get-ChildItem -Path "C:\" -Filter "QLC*" -ErrorAction SilentlyContinue | Select-Object FullName | Out-String | Write-Host
             exit 1
           }
           Write-Host "找到 QLC+ 可执行文件: $installDir\qlcplus.exe"
