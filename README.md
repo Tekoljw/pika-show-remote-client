@@ -7,7 +7,7 @@
 ## 依赖
 
 - [Node.js](https://nodejs.org/) **>= 24**(源码直跑才需要;`@webviewjs/webview` 要求这个版本,打包成 exe 之后不用装 Node)
-- [QLC+](https://www.qlcplus.org/)(装好之后确认 `qlcplus.exe` 在系统 PATH 里,或者在界面里 / 用 `QLCPLUS_BIN` 环境变量指定完整路径)
+- [QLC+](https://www.qlcplus.org/)——2026-09-14 起**打包进了分发产物里,不用用户自己单独装**（Apache 2.0 协议允许这样重新分发,见项目记忆 `reference_qlcplus_bundling.md`）。CI 打包时会去官网下载官方安装包解出 `qlcplus.exe` 一起分发,跟我们自己的 exe 放在同一个 `qlcplus/` 子目录里。如果这台电脑本来就单独装过 QLC+、又没有这个捆绑目录,会退回系统 PATH 里找,也可以用 `QLCPLUS_BIN` 环境变量显式指定
 - Windows 10 1809 及以上 / Windows 11 通常已经自带 WebView2 运行时;老系统缺失时 Microsoft Edge 会自动补装,一般不用额外操心
 
 ## 界面说明
@@ -33,7 +33,7 @@ npm install
 npm run build:win
 ```
 
-产物在 `dist/pika-show-remote.exe`,一个文件、不用装 Node.js,双击就能跑(QLC+ 还是要单独装)。界面里的"检查更新"只在这个打包后的 exe 里有效——源码直跑(`node index.js`)模式下点"检查更新"能查,但"立即更新"会报错拒绝执行,因为没有一个"自己"可以被替换。
+产物是 `dist/` 整个目录——`pika-show-remote.exe` 加一个 `qlcplus/` 子目录（打包时自动下载官方 QLC+ 装好，见上面"依赖"一节），不再是单文件，分发时要整个目录一起打包（zip）给用户，解压后双击 `pika-show-remote.exe` 即可,不用单独装 Node.js、也不用单独装 QLC+。界面里的"检查更新"只在这个打包后的 exe 里有效——源码直跑(`node index.js`)模式下点"检查更新"能查,但"立即更新"会报错拒绝执行,因为没有一个"自己"可以被替换。
 
 **如实说明这一层保护的边界**:这只是把代码+Node 运行时打包成一个二进制文件,不是加密。打包格式(`pkg`/`@yao-pkg/pkg`)本身是公开、有文档的,懂行的人用现成工具能把代码整个提取出来——这一步的作用是"用户拿到的是一个 exe,不是能直接打开看的源码文件夹",劝退非技术用户,挡不住真正想反编译的人。
 
@@ -41,19 +41,21 @@ npm run build:win
 
 ## 配对
 
-首次启动、本地没有保存的 `device_token` 时,窗口里会弹出"配对验证码"那张卡片。管理员的 Telegram 会收到一条验证码消息(每个管理员收到的码不一样),把自己收到的那个填进去、点提交就完成配对了——这台 PC 会自动记为"这个管理员配对的"。之后每次启动都会用保存下来的 `device_token` 自动认证,不用再填一遍。
+2026-09-14 起 PC 的连接身份彻底去持久化（见项目记忆 `reference_pc_ephemeral_connection.md`）——**不保存任何配对凭证**,每次启动、每次断线重连都会弹出"配对验证码"那张卡片,需要真人重新走一遍验证码流程,没有"记住我"。管理员的 Telegram 会收到一条验证码消息(每个管理员收到的码不一样),把自己收到的那个填进去、点提交就完成这次连接的配对——这条连接生命周期内被记为"这个管理员配对的",断线后这层关系随之清空。如果管理员没收到验证码、或者等太久码过期了,配对卡片里有"🔄 重新获取验证码"按钮,不用重启整个程序。
 
 ## 检查更新 / 热更新
 
 点界面里的"检查更新",会去查 [pika-show-remote-client 这个公开仓库](https://github.com/Tekoljw/pika-show-remote-client/releases) 的最新 Release,跟当前 `package.json` 里的版本号比对。有新版会出现"立即更新"按钮,点了之后:下载新 exe → 等当前进程退出 → 把新文件换到位 → 自动重新拉起。整个过程会重启程序,直播中不要手贱点。
 
-新版本的发布是 CI 自动做的(`.github/workflows/build.yml` 构建通过后,按 `package.json` 里的版本号自动建一个新 Release、把 exe 挂上去)——要发新版本,改代码的同时把 `package.json` 的 `version` 也提一下,push 之后 CI 会自动出新 Release。
+⚠️ **热更新目前只替换 `pika-show-remote.exe` 这一个文件,不会动 `qlcplus/` 这个捆绑目录**——QLC+ 版本的升级还没纳入热更新范围(见项目记忆 `reference_qlcplus_bundling.md` 的"打包形态改变的连锁影响"一节,这是打包进 QLC+ 之后还没做完的后续工作),真要换 QLC+ 版本目前得整个重新下载安装包。
+
+新版本的发布是 CI 自动做的(`.github/workflows/build.yml` 构建通过后,按 `package.json` 里的版本号自动建一个新 Release、把打包好的 zip 挂上去)——要发新版本,改代码的同时把 `package.json` 的 `version` 也提一下,push 之后 CI 会自动出新 Release。
 
 ## 环境变量(都是可选的,不设就用默认值)
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `PIKA_SHOW_HOST` | `show.pika.club` | 服务端域名 |
-| `QLCPLUS_BIN` | `qlcplus.exe`(从 PATH 找) | QLC+ 可执行文件完整路径 |
+| `QLCPLUS_BIN` | 优先用打包时捆绑的那份,没有才退回 PATH | QLC+ 可执行文件完整路径,显式指定的优先级最高 |
 | `QLCPLUS_PORT` | `9999` | QLC+ 内建 Web API 端口 |
 | `QLCPLUS_WORKSPACE` | 无 | 启动时自动加载的配接方案(`.qxw`)文件路径 |

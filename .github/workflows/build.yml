@@ -66,6 +66,36 @@ jobs:
       - name: 打包成单文件 exe
         run: npm run build:win
 
+      - name: 下载并解出 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
+        # QLC+（mcallegari/qlcplus，Apache 2.0 协议，查证过允许这样重新分发）
+        # 的 GitHub Release 不带任何二进制 asset，真正的 Windows 安装包托管在
+        # 官网自己的下载服务器。用 7-Zip 直接解开 NSIS 安装包（不运行安装程序，
+        # windows-latest runner 自带 7-Zip），不用猜安装包内部目录结构，解压后
+        # 递归找 qlcplus.exe 所在目录整个复制过来。
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $qlcVersion = "5.2.2"
+          $qlcUrl = "https://www.qlcplus.org/downloads/$qlcVersion/QLC+_$qlcVersion.exe"
+          Write-Host "下载 QLC+ $qlcVersion : $qlcUrl"
+          Invoke-WebRequest -Uri $qlcUrl -OutFile "qlcplus-installer.exe" -UserAgent "Mozilla/5.0"
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          & $sevenZip x "qlcplus-installer.exe" -o"qlcplus-extracted" -y | Out-Null
+          $exeFile = Get-ChildItem -Path "qlcplus-extracted" -Recurse -Filter "qlcplus.exe" | Select-Object -First 1
+          if (-not $exeFile) {
+            Write-Error "解压 QLC+ 安装包后没找到 qlcplus.exe，官方安装包内部结构可能变了，需要人工检查（不是代码 bug）"
+            exit 1
+          }
+          Write-Host "找到 QLC+ 可执行文件: $($exeFile.FullName)"
+          Copy-Item -Path $exeFile.Directory.FullName -Destination "dist\qlcplus" -Recurse -Force
+          $fileCount = (Get-ChildItem "dist\qlcplus" -Recurse -File).Count
+          Write-Host "QLC+ 已捆绑到 dist\qlcplus，共 $fileCount 个文件"
+          $existingLicense = Get-ChildItem -Path "dist\qlcplus" -Include "LICENSE*","COPYING*" -Recurse -ErrorAction SilentlyContinue
+          if (-not $existingLicense) {
+            "QLC+ (https://www.qlcplus.org/) is bundled with this distribution under the Apache License, Version 2.0.`nFull license text: https://www.apache.org/licenses/LICENSE-2.0`nSource code: https://github.com/mcallegari/qlcplus" | Out-File -FilePath "dist\qlcplus\NOTICE.txt" -Encoding utf8
+            Write-Host "QLC+ 安装包里没带许可证文件，已生成 NOTICE.txt 补充授权说明"
+          }
+
       - uses: ilammy/msvc-dev-cmd@v1
 
       - name: 隐藏命令行窗口——把 exe 的 PE 子系统从 CONSOLE 改成 WINDOWS
@@ -75,10 +105,10 @@ jobs:
         # 测试之前——冒烟测试要验证的是真正会发布出去的这个产物。
         run: editbin /subsystem:windows dist\pika-show-remote.exe
 
-      - name: 冒烟测试——打包后的 exe 能不能正常跑起来（不需要真连服务端/QLC+）
+      - name: 冒烟测试——打包后的 exe 能不能正常跑起来，且真的能拉起捆绑的 QLC+
         run: |
           $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru -RedirectStandardOutput "exe-stdout.log" -RedirectStandardError "exe-stderr.log"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 8
           if ($p.HasExited) {
             Write-Error "exe 启动后自己退出了（应该常驻运行才对），exit code: $($p.ExitCode)"
             Write-Host "---- stdout ----"
@@ -88,12 +118,33 @@ jobs:
             exit 1
           }
           Write-Host "exe 已经跑起来了，进程仍然存活，符合预期（正常会一直连服务端重连）"
+          $qlcProc = Get-Process -Name "qlcplus" -ErrorAction SilentlyContinue
+          if (-not $qlcProc) {
+            Write-Error "qlcplus.exe 没有被拉起来——捆绑的 QLC+ 没生效，检查 qlcEngine.js 的路径解析或这次捆绑的文件是否完整"
+            Get-Content "exe-stdout.log" -ErrorAction SilentlyContinue
+            Stop-Process -Id $p.Id -Force
+            exit 1
+          }
+          Write-Host "捆绑的 QLC+ 已经被成功拉起(PID=$($qlcProc.Id))，路径解析生效"
           Stop-Process -Id $p.Id -Force
+          Stop-Process -Id $qlcProc.Id -Force -ErrorAction SilentlyContinue
+
+      - name: 打包发布用的 zip——完整目录（exe + 捆绑的 QLC+），供用户首次下载解压使用
+        # GitHub Release 单独还会挂一份裸 exe（见下面发布步骤），是因为
+        # updater.js 的 checkForUpdate() 现在只认 .exe 结尾的 asset 做热更新，
+        # 热更新目前只替换这一个文件、不碰 qlcplus/ 目录（见 remote-client
+        # 项目记忆 reference_qlcplus_bundling.md 的已知限制）——两份都发，
+        # 各自服务不同场景，互不冲突。
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path "dist\*" -DestinationPath "pika-show-remote-v$version.zip" -Force
+          Write-Host "已生成 pika-show-remote-v$version.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: pika-show-remote-windows
-          path: dist/pika-show-remote.exe
+          path: dist
           retention-days: 30
 
       - name: 自动发布——版本号对应的 tag 不存在才建 Release（版本没提就不重复发布）
@@ -108,7 +159,7 @@ jobs:
             Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
           } else {
             Write-Host "创建 Release $tag"
-            gh release create $tag "dist/pika-show-remote.exe" `
+            gh release create $tag "dist/pika-show-remote.exe" "pika-show-remote-v$version.zip" `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，来自 commit ${{ github.sha }}"
+              --notes "自动构建发布，来自 commit ${{ github.sha }}。`n`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用`n- pika-show-remote-v$version.zip：完整包（含捆绑的 QLC+），新用户首次安装用这个"
           }
