@@ -66,6 +66,15 @@ jobs:
       - name: 打包成单文件 exe
         run: npm run build:win
 
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: 隐藏命令行窗口——把 exe 的 PE 子系统从 CONSOLE 改成 WINDOWS
+        # 用户反馈双击运行时背后那个黑色命令行窗口很碍眼，只需要 GUI 窗口。
+        # editbin 随 MSVC Build Tools 一起装，windows-latest runner 自带，
+        # 用 ilammy/msvc-dev-cmd 把它加进 PATH。这一步必须在打包之后、冒烟
+        # 测试之前——冒烟测试要验证的是真正会发布出去的这个产物。
+        run: editbin /subsystem:windows dist\pika-show-remote.exe
+
       - name: 冒烟测试——打包后的 exe 能不能正常跑起来（不需要真连服务端/QLC+）
         run: |
           $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru -RedirectStandardOutput "exe-stdout.log" -RedirectStandardError "exe-stderr.log"
