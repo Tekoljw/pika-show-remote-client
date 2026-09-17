@@ -12,11 +12,7 @@
 
 ## 下载
 
-去 [Releases](https://github.com/Tekoljw/pika-show-remote-client/releases) 页面下载最新版本，三份资产选一个：
-
-- **`PIKA-Show-Setup-v<版本>.exe`**——安装向导，**新用户首次安装推荐用这个**（双击、下一步、完成，自动配开机自启动）
-- `pika-show-remote-v<版本>.zip`——免安装完整包（含捆绑的 QLC+），解压即用
-- `pika-show-remote.exe`——裸 exe，给已经装过 QLC+ 的老用户，或者客户端内"检查更新"热更新用
+去 [Releases](https://github.com/Tekoljw/pika-show-remote-client/releases) 页面下载 `PIKA-Show-Setup-v<版本>.exe`——双击、下一步、完成，自动装好捆绑的 QLC+、自动配开机自启动。只有这一份资产，程序内"检查更新"热更新也是拉这一份静默重装。
 
 ## 依赖
 

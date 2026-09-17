@@ -17,8 +17,14 @@ name: Build PIKA-Show 远程客户端 (Windows)
 # 触发这次构建。
 #
 # 自动发布：构建通过后，如果 package.json 的版本号对应的 tag 还没有 Release，
-# 就自动建一个并把 exe 挂上去——远程客户端 GUI 里的"检查更新"就是查这个仓库
-# 的 latest release，没有这一步"检查更新"永远查不到新版本。
+# 就自动建一个并把安装向导挂上去——远程客户端 GUI 里的"检查更新"就是查这个
+# 仓库的 latest release，没有这一步"检查更新"永远查不到新版本。
+#
+# 只发一份资产（安装向导，含 QLC+）：之前发过裸 exe + zip + 安装向导三份，
+# 是因为热更新逻辑是"自己 move 一个裸 exe 到位、不碰 qlcplus/ 目录"，需要
+# 一份不含 QLC+ 的裸 exe 专门配合。管理员明确要求不要这三份，改成热更新直接
+# 静默重跑安装向导（updater.js 已改），装到哪、叫什么名字都跟首次安装完全
+# 一样，不再需要额外的裸 exe/zip 变体。
 on:
   workflow_dispatch: {}
 
@@ -227,23 +233,12 @@ jobs:
           }
           Write-Host "已生成 PIKA-Show-Setup-v$version.exe"
 
-      - name: 打包发布用的 zip——完整目录（exe + 捆绑的 QLC+），供用户首次下载解压使用
-        # GitHub Release 单独还会挂一份裸 exe（见下面发布步骤），是因为
-        # updater.js 的 checkForUpdate() 现在只认 .exe 结尾的 asset 做热更新，
-        # 热更新目前只替换这一个文件、不碰 qlcplus/ 目录（见 remote-client
-        # 项目记忆 reference_qlcplus_bundling.md 的已知限制）——两份都发，
-        # 各自服务不同场景，互不冲突。
-        shell: pwsh
-        working-directory: source/remote-client
-        run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          Compress-Archive -Path "dist\*" -DestinationPath "pika-show-remote-v$version.zip" -Force
-          Write-Host "已生成 pika-show-remote-v$version.zip"
-
       - uses: actions/upload-artifact@v4
         with:
           name: pika-show-remote-windows
-          path: source/remote-client/dist
+          path: |
+            source/remote-client/dist
+            source/remote-client/PIKA-Show-Setup-*.exe
           retention-days: 30
 
       - name: 自动发布——版本号对应的 tag 不存在才建 Release（版本没提就不重复发布）
@@ -264,8 +259,8 @@ jobs:
             Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
           } else {
             Write-Host "创建 Release $tag"
-            gh release create $tag "dist/pika-show-remote.exe" "pika-show-remote-v$version.zip" "PIKA-Show-Setup-v$version.exe" `
+            gh release create $tag "PIKA-Show-Setup-v$version.exe" `
               --repo Tekoljw/pika-show-remote-client `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n- PIKA-Show-Setup-v$version.exe：安装向导，新用户首次安装推荐用这个（自动配开机启动）`n- pika-show-remote-v$version.zip：免安装完整包（含捆绑的 QLC+），解压即用`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用"
+              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n下载 PIKA-Show-Setup-v$version.exe 双击安装（含捆绑的 QLC+，自动配开机启动），程序内"检查更新"也是拉这一份静默重装。"
           }
