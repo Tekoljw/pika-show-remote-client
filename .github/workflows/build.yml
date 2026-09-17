@@ -17,14 +17,22 @@ name: Build PIKA-Show 远程客户端 (Windows)
 # 触发这次构建。
 #
 # 自动发布：构建通过后，如果 package.json 的版本号对应的 tag 还没有 Release，
-# 就自动建一个并把安装向导挂上去——远程客户端 GUI 里的"检查更新"就是查这个
-# 仓库的 latest release，没有这一步"检查更新"永远查不到新版本。
+# 就自动建一个。远程客户端 GUI 里的"检查更新"就是查这个仓库的 latest release，
+# 没有这一步"检查更新"永远查不到新版本。
 #
-# 只发一份资产（安装向导，含 QLC+）：之前发过裸 exe + zip + 安装向导三份，
-# 是因为热更新逻辑是"自己 move 一个裸 exe 到位、不碰 qlcplus/ 目录"，需要
-# 一份不含 QLC+ 的裸 exe 专门配合。管理员明确要求不要这三份，改成热更新直接
-# 静默重跑安装向导（updater.js 已改），装到哪、叫什么名字都跟首次安装完全
-# 一样，不再需要额外的裸 exe/zip 变体。
+# 发两份资产，但只有一份是给人看的：`PIKA-Show-Setup-v<版本>.exe`（安装向导，
+# 含 QLC+）是**唯一**给人类下载装的入口，README/bot 下载按钮只提这一个。
+# `pika-show-remote.exe`（裸 exe）是第二份资产，纯粹给客户端自己"检查更新"
+# 热更新用，不出现在任何用户可见的下载页面/说明文档里——管理员的要求是
+# "不要给人类三个选择"，不是"内部机制不能有第二个文件"：热更新是程序自己
+# 悄悄下载替换，不是人去 Release 页面挑，所以这里不算违反那条要求。
+#
+# 这条来回改过一次：中间有一版把热更新改成"静默重跑安装向导"，试图做到真的
+# 只发一份资产——管理员反馈"不要安装，直接下载文件覆盖"，运行安装程序哪怕是
+# /VERYSILENT 完全不可见，在管理员看来仍然是"安装"这个动作，跟"下载一个文件
+# 直接换上去"不是一回事，改回原来这套 move 逻辑，见 remote-client/lib/updater.js
+# 头部注释。副作用：QLC+ 版本升级不会随热更新生效（热更新只碰程序本体），
+# 这是明确接受的取舍。
 on:
   workflow_dispatch: {}
 
@@ -265,8 +273,8 @@ jobs:
             Write-Host "创建 Release $tag"
             # 注意：--notes 的值是双引号字符串，里面不能再放裸的英文双引号
             # （会被 pwsh 当成字符串提前结束），用「」代替强调用的引号。
-            gh release create $tag "PIKA-Show-Setup-v$version.exe" `
+            gh release create $tag "PIKA-Show-Setup-v$version.exe" "dist/pika-show-remote.exe" `
               --repo Tekoljw/pika-show-remote-client `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n下载 PIKA-Show-Setup-v$version.exe 双击安装（含捆绑的 QLC+，自动配开机启动），程序内「检查更新」也是拉这一份静默重装。"
+              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n下载 PIKA-Show-Setup-v$version.exe 双击安装（含捆绑的 QLC+，自动配开机启动）——**人类只需要这一个文件**。pika-show-remote.exe 是给客户端「检查更新」热更新用的裸文件，不需要手动下载。"
           }
