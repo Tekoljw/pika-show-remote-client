@@ -253,14 +253,20 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $tag = "v$version"
-          $sourceSha = (git -C ../.. rev-parse HEAD)
+          # 之前这里写的是 ../..，两级会跳到 $GITHUB_WORKSPACE 根——那里根本
+          # 没有 checkout 过任何东西，不是 git 仓库。checkout 私有仓库时
+          # path: source 指定的是 source/，从 source/remote-client 只需要上
+          # 一级（..）就是 source 这个真正的检出根。
+          $sourceSha = (git -C .. rev-parse HEAD)
           $exists = gh release view $tag --repo Tekoljw/pika-show-remote-client 2>$null
           if ($LASTEXITCODE -eq 0) {
             Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
           } else {
             Write-Host "创建 Release $tag"
+            # 注意：--notes 的值是双引号字符串，里面不能再放裸的英文双引号
+            # （会被 pwsh 当成字符串提前结束），用「」代替强调用的引号。
             gh release create $tag "PIKA-Show-Setup-v$version.exe" `
               --repo Tekoljw/pika-show-remote-client `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n下载 PIKA-Show-Setup-v$version.exe 双击安装（含捆绑的 QLC+，自动配开机启动），程序内"检查更新"也是拉这一份静默重装。"
+              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n下载 PIKA-Show-Setup-v$version.exe 双击安装（含捆绑的 QLC+，自动配开机启动），程序内「检查更新」也是拉这一份静默重装。"
           }
