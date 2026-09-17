@@ -1,17 +1,25 @@
 name: Build PIKA-Show 远程客户端 (Windows)
 
-# 独立公开仓库，只放这个远程客户端——用途是拿 GitHub 公开仓库的免费无限 Actions
+# 独立公开仓库，只放"构建外壳"——用途是拿 GitHub 公开仓库的免费无限 Actions
 # 分钟数（不受 PIKA-Show 主仓库所在账号的 billing/spending limit 影响），并且
 # 用真 Windows Runner 构建 + 冒烟测试（不是本地用 Wine 模拟那种退而求其次的验证）。
-# 这个仓库是 PIKA-Show 私有主仓库 remote-client/ 目录的构建镜像，不是独立开发的
-# 代码——改动应该先在主仓库改，再同步过来，不要直接在这里改代码。
 #
-# 2026-09 加了自动发布：构建通过后，如果 package.json 的版本号对应的 tag 还
-# 没有 Release，就自动建一个并把 exe 挂上去——远程客户端 GUI 里的"检查更新"
-# 就是查这个仓库的 latest release，没有这一步"检查更新"永远查不到新版本。
+# ⚠️ 2026-09-17 起不再往这个仓库里同步源码——之前的做法是把 PIKA-Show 私有
+# 主仓库 remote-client/ 目录的文件复制过来 commit，等于源码在公开仓库里留了
+# 一份副本。管理员明确要求不要这样：改成这个仓库只放这份工作流文件本身，
+# 构建时用一把只读 deploy key（存在这个仓库的 Secrets 里，公开仓库对外看不到
+# 内容）直接检出私有仓库的 remote-client/ 目录来构建，公开侧永远看不到一行
+# 产品代码，只能看到构建脚本和最终编译出的 Release 二进制。
+#
+# 触发方式从"push 到这个仓库自己"改成手动触发——这个仓库不会再收到代码 push
+# 了（没有代码可推），改动流程变成：私有仓库改代码、提版本号、push（那边自己
+# 的事）→ 手动跑一次 `gh workflow run build.yml --repo Tekoljw/pika-show-remote-client`
+# 触发这次构建。
+#
+# 自动发布：构建通过后，如果 package.json 的版本号对应的 tag 还没有 Release，
+# 就自动建一个并把 exe 挂上去——远程客户端 GUI 里的"检查更新"就是查这个仓库
+# 的 latest release，没有这一步"检查更新"永远查不到新版本。
 on:
-  push:
-    branches: [master]
   workflow_dispatch: {}
 
 permissions:
@@ -21,16 +29,23 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出私有主仓库的源码（只读 deploy key，公开侧不留一行代码）
+        uses: actions/checkout@v4
+        with:
+          repository: Tekoljw/PIKA-Show
+          ssh-key: ${{ secrets.PIKA_SHOW_DEPLOY_KEY }}
+          path: source
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
 
       - name: 安装依赖
+        working-directory: source/remote-client
         run: npm ci
 
       - name: 冒烟测试——原生模块（serialport/easymidi）在真 Windows 上能不能正常加载
+        working-directory: source/remote-client
         run: |
           node -e "
             const { scanDevices } = require('./lib/scan.js');
@@ -44,6 +59,7 @@ jobs:
           "
 
       - name: 冒烟测试——@webviewjs/webview 原生模块能不能加载（不开真窗口，只测 require 不炸）
+        working-directory: source/remote-client
         run: |
           node -e "
             const { Application } = require('@webviewjs/webview');
@@ -51,6 +67,7 @@ jobs:
           "
 
       - name: 冒烟测试——engine.js/showStorage.js（node:sqlite）在真 Windows 上能不能正常加载和读写
+        working-directory: source/remote-client
         run: |
           node -e "
             const engine = require('./lib/engine.js');
@@ -64,6 +81,7 @@ jobs:
           "
 
       - name: 打包成单文件 exe
+        working-directory: source/remote-client
         run: npm run build:win
 
       - name: 下载并静默安装 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
@@ -84,6 +102,7 @@ jobs:
         # 确认存在、`InstallDir C:\QLC+`（硬编码固定路径，不带版本号后缀）—— 跟
         # 现有代码的假设完全匹配，改用这个版本。
         shell: pwsh
+        working-directory: source/remote-client
         run: |
           $ProgressPreference = 'SilentlyContinue'
           $qlcVersion = "4.14.4"
@@ -152,9 +171,11 @@ jobs:
         # editbin 随 MSVC Build Tools 一起装，windows-latest runner 自带，
         # 用 ilammy/msvc-dev-cmd 把它加进 PATH。这一步必须在打包之后、冒烟
         # 测试之前——冒烟测试要验证的是真正会发布出去的这个产物。
+        working-directory: source/remote-client
         run: editbin /subsystem:windows dist\pika-show-remote.exe
 
       - name: 冒烟测试——打包后的 exe 能不能正常跑起来，且真的能拉起捆绑的 QLC+
+        working-directory: source/remote-client
         run: |
           $p = Start-Process -FilePath "dist\pika-show-remote.exe" -PassThru -RedirectStandardOutput "exe-stdout.log" -RedirectStandardError "exe-stderr.log"
           Start-Sleep -Seconds 8
@@ -189,6 +210,7 @@ jobs:
         # 软件清单对不上；同一次诊断输出里 Inno Setup 6 确认真实存在于
         # C:\Program Files (x86)\Inno Setup 6，换用它，路径已现查证实。
         shell: pwsh
+        working-directory: source/remote-client
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
@@ -212,6 +234,7 @@ jobs:
         # 项目记忆 reference_qlcplus_bundling.md 的已知限制）——两份都发，
         # 各自服务不同场景，互不冲突。
         shell: pwsh
+        working-directory: source/remote-client
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           Compress-Archive -Path "dist\*" -DestinationPath "pika-show-remote-v$version.zip" -Force
@@ -220,22 +243,29 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pika-show-remote-windows
-          path: dist
+          path: source/remote-client/dist
           retention-days: 30
 
       - name: 自动发布——版本号对应的 tag 不存在才建 Release（版本没提就不重复发布）
+        # 显式 --repo 指定发布到这个公开仓库——cwd 在 source/remote-client 下面，
+        # 那是私有主仓库的一份检出，gh 会从当前目录的 git remote 猜仓库，猜出来
+        # 的会是私有仓库（且这里用的 token 对私有仓库没有写权限），必须每个
+        # gh 调用都显式指定 --repo，不能让它自己猜。
         shell: pwsh
+        working-directory: source/remote-client
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $tag = "v$version"
-          $exists = gh release view $tag 2>$null
+          $sourceSha = (git -C ../.. rev-parse HEAD)
+          $exists = gh release view $tag --repo Tekoljw/pika-show-remote-client 2>$null
           if ($LASTEXITCODE -eq 0) {
             Write-Host "Release $tag 已存在，跳过（package.json 版本号没提就不会重复发布）"
           } else {
             Write-Host "创建 Release $tag"
             gh release create $tag "dist/pika-show-remote.exe" "pika-show-remote-v$version.zip" "PIKA-Show-Setup-v$version.exe" `
+              --repo Tekoljw/pika-show-remote-client `
               --title "PIKA-Show 远程客户端 $tag" `
-              --notes "自动构建发布，来自 commit ${{ github.sha }}。`n`n- PIKA-Show-Setup-v$version.exe：安装向导，新用户首次安装推荐用这个（自动配开机启动）`n- pika-show-remote-v$version.zip：免安装完整包（含捆绑的 QLC+），解压即用`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用"
+              --notes "自动构建发布，源码来自私有主仓库 commit $sourceSha。`n`n- PIKA-Show-Setup-v$version.exe：安装向导，新用户首次安装推荐用这个（自动配开机启动）`n- pika-show-remote-v$version.zip：免安装完整包（含捆绑的 QLC+），解压即用`n- pika-show-remote.exe：裸 exe，给已装过 QLC+ 的老用户 / 热更新用"
           }
