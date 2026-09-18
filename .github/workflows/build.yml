@@ -98,85 +98,39 @@ jobs:
         working-directory: source/remote-client
         run: npm run build:win
 
-      - name: 下载并静默安装 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
-        # QLC+（mcallegari/qlcplus，Apache 2.0 协议，查证过允许这样重新分发）
-        # 的 GitHub Release 不带任何二进制 asset，真正的 Windows 安装包托管在
-        # 官网自己的下载服务器，是个 NSIS 安装包。
+      - name: 解压捆绑的 QLC+——不再要求用户自己单独装，见 remote-client 仓库项目记忆 reference_qlcplus_bundling.md
+        # 2026-09-17 起改成从我们自己建的 vendor Release 拿，不再每次构建都现场
+        # 去 www.qlcplus.org 下载官方安装包——那台服务器有 Cloudflare WAF/速率
+        # 限制，CI 反复被拦（429/"Not Acceptable"），本来就不该每次构建都现场
+        # 拉取上游资源（PIKA-Show 主仓库全局工作规则「依赖上游开源项目：只用
+        # 自己编译的产物」）。qlcplus-4.14.4-vendor 这个 tag 下的 zip 是从一次
+        # 成功构建里拿出来的、已经验证过能正常拉起工作的 qlcplus/ 目录（QLC+
+        # 官方安装包解压安装后的完整产物，Apache 2.0 协议下允许重新分发，已带
+        # NOTICE.txt），直接下载解压即可，不用再跑 NSIS 静默安装、不用再到处
+        # 搜 qlcplus.exe 装到哪了。
         #
-        # 版本从 5.2.2 改回 4.14.4——关键发现：5.2.2 装完之后目录里根本没有
-        # `qlcplus.exe`，只有 `qlcplus-qml.exe`（QLC+ 5.x 把主界面从 Qt Widgets
-        # 重写成了 QML，可执行文件改了名字）。我们全部代码（qlcEngine.js 的
-        # spawn、README、engine.js 的 resolveQlcBinaryPath 默认值）都假设的是
-        # 老的 qlcplus.exe，而且 qlcEngine.js 依赖的 --web/--web-port 内建网页
-        # 控制台协议是否在 QML 版里还存在、行为是否一致，完全没有验证过——贸然
-        # 换成 qlcplus-qml.exe 风险远大于"CI 找不到文件"这一层，属于要另外找
-        # 用户确认的架构级决定，不是构建脚本能单方面拍板的事。4.14.4 经过直接
-        # 拉取该 tag 的官方 .nsi 源码核实（platforms/windows/qlcplus4Qt5.nsi，
-        # tag QLC+_4.14.4）：`OutFile "QLC+_4.14.4.exe"` 对得上、`File qlcplus.exe`
-        # 确认存在、`InstallDir C:\QLC+`（硬编码固定路径，不带版本号后缀）—— 跟
-        # 现有代码的假设完全匹配，改用这个版本。
+        # 以后要升的 QLC+ 版本：手动装一次新版官方安装包、把 qlcplus/ 目录打包
+        # 建一个新的 qlcplus-<版本>-vendor Release，再把下面这行 URL 改指向新
+        # tag——这是刻意的一次性动作，不是这里自动做的事。
         shell: pwsh
         working-directory: source/remote-client
         run: |
-          $ProgressPreference = 'SilentlyContinue'
-          $qlcVersion = "4.14.4"
-          $qlcUrl = "https://www.qlcplus.org/downloads/$qlcVersion/QLC+_$qlcVersion.exe"
-          Write-Host "下载 QLC+ $qlcVersion : $qlcUrl"
-          # qlcplus.org 前面挂了 Cloudflare/ModSecurity，太简短的 User-Agent
-          # （比如单纯 "Mozilla/5.0"）会被当成疑似机器人直接拦截返回
-          # "Not Acceptable" 错误页——之前一次 CI 运行就是这样，返回的是几百
-          # 字节的错误页 HTML 而不是真的安装包。换成完整的浏览器 UA 字符串。
-          $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          Invoke-WebRequest -Uri $qlcUrl -OutFile "qlcplus-installer.exe" -UserAgent $ua
-          $fileSize = (Get-Item "qlcplus-installer.exe").Length
+          $qlcZipUrl = "https://github.com/Tekoljw/pika-show-remote-client/releases/download/qlcplus-4.14.4-vendor/qlcplus-4.14.4-win-x64.zip"
+          Write-Host "下载自建的 QLC+ vendor 包: $qlcZipUrl"
+          Invoke-WebRequest -Uri $qlcZipUrl -OutFile "qlcplus-vendor.zip"
+          $fileSize = (Get-Item "qlcplus-vendor.zip").Length
           Write-Host "下载完成，文件大小: $fileSize 字节"
           if ($fileSize -lt 10MB) {
-            Write-Error "下载的文件只有 $fileSize 字节，明显不是真的安装包（应该有 40-60MB），大概率是官网的 WAF 拦截返回了错误页面而不是真的文件"
-            Write-Host "---- 文件内容预览 ----"
-            Get-Content "qlcplus-installer.exe" -TotalCount 20 -ErrorAction SilentlyContinue
+            Write-Error "下载的文件只有 $fileSize 字节，明显不是真的 QLC+ 包（应该有 50-60MB），检查 qlcplus-4.14.4-vendor 这个 Release 的资产是否还在"
             exit 1
           }
-          $proc = Start-Process -FilePath "qlcplus-installer.exe" -ArgumentList "/S" -Wait -PassThru
-          Write-Host "安装程序退出码: $($proc.ExitCode)"
-          Start-Sleep -Seconds 3
-          # .nsi 源码核实过 InstallDir 硬编码是 C:\QLC+（无版本号后缀），优先
-          # 直接认这个路径；万一装到别的地方（比如非管理员权限触发了不同分支），
-          # 再退回 Program Files/LOCALAPPDATA/APPDATA 范围内搜，仍然不碰整个 C 盘
-          # （教训：之前有一版不限范围搜整个 C 盘，跑了 8 分钟才手动取消）。
-          $installDir = $null
-          if (Test-Path "C:\QLC+\qlcplus.exe") {
-            $installDir = "C:\QLC+"
-          } else {
-            $searchRoots = @("C:\Program Files", "C:\Program Files (x86)", $env:LOCALAPPDATA, $env:APPDATA) | Where-Object { $_ -and (Test-Path $_) }
-            foreach ($root in $searchRoots) {
-              $hit = Get-ChildItem -Path $root -Recurse -Filter "qlcplus.exe" -ErrorAction SilentlyContinue -Depth 4 | Select-Object -First 1
-              if ($hit) { $installDir = $hit.DirectoryName; break }
-            }
-          }
-          if (-not $installDir) {
-            # 用 Write-Host 不用 Write-Error——pwsh 在 GH Actions 里 $ErrorActionPreference
-            # 默认是 Stop，Write-Error 会是终止性错误，直接跳过后面所有诊断输出，
-            # 之前几次运行就是这样白白损失了排查信息。
-            Write-Host "ERROR: C:\QLC+ 和 Program Files/LOCALAPPDATA/APPDATA 里都没找到 qlcplus.exe"
-            Write-Host "---- C:\QLC+ 目录内容 ----"
-            if (Test-Path "C:\QLC+") { Get-ChildItem -Path "C:\QLC+" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host }
-            Write-Host "---- C:\Program Files 内容 ----"
-            Get-ChildItem -Path "C:\Program Files" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
-            Write-Host "---- C:\Program Files (x86) 内容 ----"
-            Get-ChildItem -Path "C:\Program Files (x86)" -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
-            Write-Host "---- $env:LOCALAPPDATA 内容 ----"
-            Get-ChildItem -Path $env:LOCALAPPDATA -ErrorAction SilentlyContinue | Select-Object Name | Out-String | Write-Host
+          Expand-Archive -Path "qlcplus-vendor.zip" -DestinationPath "dist" -Force
+          if (-not (Test-Path "dist\qlcplus\qlcplus.exe")) {
+            Write-Error "解压完 dist\qlcplus 里没有 qlcplus.exe，vendor 包内容不对"
             exit 1
           }
-          Write-Host "找到 QLC+ 可执行文件: $installDir\qlcplus.exe"
-          Copy-Item -Path $installDir -Destination "dist\qlcplus" -Recurse -Force
           $fileCount = (Get-ChildItem "dist\qlcplus" -Recurse -File).Count
           Write-Host "QLC+ 已捆绑到 dist\qlcplus，共 $fileCount 个文件"
-          $existingLicense = Get-ChildItem -Path "dist\qlcplus" -Include "LICENSE*","COPYING*" -Recurse -ErrorAction SilentlyContinue
-          if (-not $existingLicense) {
-            "QLC+ (https://www.qlcplus.org/) is bundled with this distribution under the Apache License, Version 2.0.`nFull license text: https://www.apache.org/licenses/LICENSE-2.0`nSource code: https://github.com/mcallegari/qlcplus" | Out-File -FilePath "dist\qlcplus\NOTICE.txt" -Encoding utf8
-            Write-Host "QLC+ 安装包里没带许可证文件，已生成 NOTICE.txt 补充授权说明"
-          }
 
       - uses: ilammy/msvc-dev-cmd@v1
 
